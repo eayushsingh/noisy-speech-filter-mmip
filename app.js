@@ -23,7 +23,7 @@ class SpeechFilterEngine {
 
     // Filter Parameters
     this.filterMode = 'lowpass';   // 'lowpass', 'highpass', 'bandpass', 'notch'
-    this.filterTopology = 'butterworth'; // 'butterworth', 'ideal', 'gaussian'
+    this.filterTopology = 'sinc'; // 'sinc', 'butterworth', 'ideal', 'gaussian'
     this.filterOrder = 2;
     this.cutoffLow = 3400;         // Fc for LPF/HPF, or Fl for BPF
     this.cutoffHigh = 3400;        // Fh for BPF
@@ -224,7 +224,9 @@ class SpeechFilterEngine {
     const len = this.noisyBuffer.length;
     this.filteredBuffer = new Float32Array(len);
 
-    if (this.filterTopology === 'butterworth') {
+    if (this.filterTopology === 'sinc') {
+      this.applySincFIRFilter();
+    } else if (this.filterTopology === 'butterworth') {
       this.applyButterworthIIR();
     } else if (this.filterTopology === 'ideal') {
       this.applyIdealFFTFilter();
@@ -233,6 +235,69 @@ class SpeechFilterEngine {
     }
 
     this.computePerformanceMetrics();
+  }
+
+  applySincFIRFilter() {
+    const fs = this.sampleRate;
+    const fc1 = Math.min(this.cutoffLow, fs * 0.49);
+    const fc2 = Math.min(this.cutoffHigh, fs * 0.49);
+    const M = 65; // FIR Filter length (65-tap windowed sinc impulse response)
+    const halfM = Math.floor(M / 2);
+    const h = new Float32Array(M);
+
+    const wc1 = 2 * Math.PI * fc1 / fs;
+    const wc2 = 2 * Math.PI * fc2 / fs;
+
+    for (let k = 0; k < M; k++) {
+      const n = k - halfM;
+      // Hamming Window Function w[n]
+      const win = 0.54 - 0.46 * Math.cos(2 * Math.PI * k / (M - 1));
+
+      if (this.filterMode === 'lowpass') {
+        // Ideal Low-Pass Sinc Impulse Response: h[n] = K * sin(wc * n) / (wc * n) = sin(wc * n) / (pi * n)
+        if (n === 0) {
+          h[k] = (wc1 / Math.PI) * win;
+        } else {
+          h[k] = (Math.sin(wc1 * n) / (Math.PI * n)) * win;
+        }
+      } else if (this.filterMode === 'highpass') {
+        // Ideal High-Pass Sinc Impulse Response: h_HP[n] = delta[n] - h_LP[n]
+        if (n === 0) {
+          h[k] = (1 - (wc1 / Math.PI)) * win;
+        } else {
+          h[k] = (-Math.sin(wc1 * n) / (Math.PI * n)) * win;
+        }
+      } else if (this.filterMode === 'bandpass') {
+        // Ideal Band-Pass Sinc Impulse Response: h_BP[n] = h_LP2[n] - h_LP1[n]
+        if (n === 0) {
+          h[k] = ((wc2 - wc1) / Math.PI) * win;
+        } else {
+          h[k] = ((Math.sin(wc2 * n) - Math.sin(wc1 * n)) / (Math.PI * n)) * win;
+        }
+      } else if (this.filterMode === 'notch') {
+        // Ideal Notch Sinc Impulse Response: h_Notch[n] = delta[n] - h_BP[n]
+        if (n === 0) {
+          h[k] = (1 - ((wc2 - wc1) / Math.PI)) * win;
+        } else {
+          h[k] = (-(Math.sin(wc2 * n) - Math.sin(wc1 * n)) / (Math.PI * n)) * win;
+        }
+      }
+    }
+
+    // Discrete Time Convolution: y[n] = sum_{k=0}^{M-1} x[n - k] * h[k]
+    const input = this.noisyBuffer;
+    const len = input.length;
+    this.filteredBuffer = new Float32Array(len);
+
+    for (let i = 0; i < len; i++) {
+      let sum = 0;
+      for (let k = 0; k < M; k++) {
+        if (i - k >= 0) {
+          sum += input[i - k] * h[k];
+        }
+      }
+      this.filteredBuffer[i] = sum;
+    }
   }
 
   applyButterworthIIR() {
@@ -396,7 +461,7 @@ class SpeechFilterEngine {
       this.cutoffHigh = 3400;
     }
 
-    this.filterTopology = 'butterworth';
+    this.filterTopology = 'sinc';
     this.filterOrder = 4;
     this.noiseHiss = 0.0;
     this.noiseHum = 0.0;
