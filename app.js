@@ -331,6 +331,93 @@ class SpeechFilterEngine {
     };
   }
 
+  autoDetectAndRemoveNoise() {
+    if (!this.noisyBuffer) return;
+    const buffer = this.noisyBuffer;
+    const len = buffer.length;
+    const fftSize = 1024;
+    const binWidth = this.sampleRate / fftSize;
+    const numBins = fftSize / 2;
+    const numBlocks = Math.floor(len / fftSize);
+
+    const avgMag = new Float32Array(numBins);
+
+    for (let b = 0; b < numBlocks; b++) {
+      const real = new Float32Array(fftSize);
+      const imag = new Float32Array(fftSize);
+      const pos = b * fftSize;
+
+      for (let i = 0; i < fftSize; i++) {
+        real[i] = buffer[pos + i];
+      }
+
+      this.fft(real, imag);
+
+      for (let k = 0; k < numBins; k++) {
+        avgMag[k] += Math.sqrt(real[k] * real[k] + imag[k] * imag[k]) / Math.max(1, numBlocks);
+      }
+    }
+
+    // 1. Analyze Low-Frequency Fan / Traffic Rumble Energy (< 350 Hz)
+    let lowEnergy = 0;
+    let maxLowFreqBin = 0;
+    let maxLowVal = 0;
+    const lowBinLimit = Math.floor(350 / binWidth);
+    for (let k = 0; k < lowBinLimit; k++) {
+      lowEnergy += avgMag[k];
+      if (avgMag[k] > maxLowVal) {
+        maxLowVal = avgMag[k];
+        maxLowFreqBin = k;
+      }
+    }
+
+    // 2. Analyze High-Frequency Fan Blade Hiss / Static Energy (> 3000 Hz)
+    let highEnergy = 0;
+    const highBinStart = Math.floor(3000 / binWidth);
+    for (let k = highBinStart; k < numBins; k++) {
+      highEnergy += avgMag[k];
+    }
+
+    const lowFreqPeakHz = maxLowFreqBin * binWidth;
+
+    // Adaptive Auto Frequency Cutoff Selection based on Fan / Traffic Noise Spectrum
+    if (lowEnergy > highEnergy * 1.4) {
+      // Traffic rumble / fan motor hum dominates -> Auto High-Pass Cutoff
+      this.filterMode = 'highpass';
+      this.cutoffLow = Math.max(180, Math.min(450, Math.round(lowFreqPeakHz + 80)));
+    } else if (highEnergy > lowEnergy * 1.4) {
+      // Fan blade hiss / static dominates -> Auto Low-Pass Cutoff
+      this.filterMode = 'lowpass';
+      this.cutoffLow = 3200;
+    } else {
+      // Mixed Fan + Traffic background noise -> Auto Vocal Bandpass (300Hz - 3400Hz)
+      this.filterMode = 'bandpass';
+      this.cutoffLow = 300;
+      this.cutoffHigh = 3400;
+    }
+
+    this.filterTopology = 'butterworth';
+    this.filterOrder = 4;
+    this.noiseHiss = 0.0;
+    this.noiseHum = 0.0;
+    this.noiseWhite = 0.0;
+
+    // Zero out sliders
+    const hissElem = document.getElementById('noise-hiss');
+    const humElem = document.getElementById('noise-hum');
+    const whiteElem = document.getElementById('noise-white');
+
+    if (hissElem) hissElem.value = 0;
+    if (document.getElementById('val-noise-hiss')) document.getElementById('val-noise-hiss').textContent = '0%';
+    if (humElem) humElem.value = 0;
+    if (document.getElementById('val-noise-hum')) document.getElementById('val-noise-hum').textContent = '0%';
+    if (whiteElem) whiteElem.value = 0;
+    if (document.getElementById('val-noise-white')) document.getElementById('val-noise-white').textContent = '0%';
+
+    this.updateFilterUI();
+    this.processAudioPipeline();
+  }
+
   applyIdealFFTFilter() {
     const blockSize = 2048;
     const hopSize = 1024;
@@ -1100,13 +1187,11 @@ class SpeechFilterEngine {
     });
 
     document.getElementById('preset-total-cancellation').addEventListener('click', () => {
-      this.filterMode = 'bandpass';
-      this.cutoffLow = 300;
-      this.cutoffHigh = 3400;
-      this.filterTopology = 'butterworth';
-      this.filterOrder = 4;
-      this.updateFilterUI();
-      this.processAudioPipeline();
+      this.autoDetectAndRemoveNoise();
+    });
+
+    document.getElementById('btn-auto-clean-all').addEventListener('click', () => {
+      this.autoDetectAndRemoveNoise();
     });
 
     document.getElementById('preset-hiss').addEventListener('click', () => {
