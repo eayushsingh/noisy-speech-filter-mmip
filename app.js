@@ -237,6 +237,22 @@ class SpeechFilterEngine {
     this.computePerformanceMetrics();
   }
 
+  /**
+   * EXACT SIR FORMULA IMPLEMENTATION:
+   * Impulse Response h[n] = K * sin(wc * n) / (wc * n)
+   * Where K = wc / Math.PI = 2 * Fc / Fs
+   */
+  calculate_h_n(n, wc) {
+    if (n === 0) {
+      const K = wc / Math.PI;
+      return K;
+    }
+    const K = wc / Math.PI;
+    // Formula: h[n] = K * sin(wc * n) / (wc * n)
+    const h_n = K * (Math.sin(wc * n) / (wc * n));
+    return h_n;
+  }
+
   applySincFIRFilter() {
     const fs = this.sampleRate;
     const fc1 = Math.min(this.cutoffLow, fs * 0.49);
@@ -250,37 +266,29 @@ class SpeechFilterEngine {
 
     for (let k = 0; k < M; k++) {
       const n = k - halfM;
-      // Hamming Window Function w[n]
+      // Hamming Window Function w[n] = 0.54 - 0.46 * cos(2 * PI * k / (M - 1))
       const win = 0.54 - 0.46 * Math.cos(2 * Math.PI * k / (M - 1));
 
       if (this.filterMode === 'lowpass') {
-        // Ideal Low-Pass Sinc Impulse Response: h[n] = K * sin(wc * n) / (wc * n) = sin(wc * n) / (pi * n)
-        if (n === 0) {
-          h[k] = (wc1 / Math.PI) * win;
-        } else {
-          h[k] = (Math.sin(wc1 * n) / (Math.PI * n)) * win;
-        }
+        // Ideal Low-Pass Sinc Impulse Response: h[n] = K * sin(wc * n) / (wc * n)
+        const h_n = this.calculate_h_n(n, wc1);
+        h[k] = h_n * win;
       } else if (this.filterMode === 'highpass') {
         // Ideal High-Pass Sinc Impulse Response: h_HP[n] = delta[n] - h_LP[n]
-        if (n === 0) {
-          h[k] = (1 - (wc1 / Math.PI)) * win;
-        } else {
-          h[k] = (-Math.sin(wc1 * n) / (Math.PI * n)) * win;
-        }
+        const h_lp = this.calculate_h_n(n, wc1);
+        const delta_n = (n === 0) ? 1.0 : 0.0;
+        h[k] = (delta_n - h_lp) * win;
       } else if (this.filterMode === 'bandpass') {
         // Ideal Band-Pass Sinc Impulse Response: h_BP[n] = h_LP2[n] - h_LP1[n]
-        if (n === 0) {
-          h[k] = ((wc2 - wc1) / Math.PI) * win;
-        } else {
-          h[k] = ((Math.sin(wc2 * n) - Math.sin(wc1 * n)) / (Math.PI * n)) * win;
-        }
+        const h_lp2 = this.calculate_h_n(n, wc2);
+        const h_lp1 = this.calculate_h_n(n, wc1);
+        h[k] = (h_lp2 - h_lp1) * win;
       } else if (this.filterMode === 'notch') {
         // Ideal Notch Sinc Impulse Response: h_Notch[n] = delta[n] - h_BP[n]
-        if (n === 0) {
-          h[k] = (1 - ((wc2 - wc1) / Math.PI)) * win;
-        } else {
-          h[k] = (-(Math.sin(wc2 * n) - Math.sin(wc1 * n)) / (Math.PI * n)) * win;
-        }
+        const h_lp2 = this.calculate_h_n(n, wc2);
+        const h_lp1 = this.calculate_h_n(n, wc1);
+        const delta_n = (n === 0) ? 1.0 : 0.0;
+        h[k] = (delta_n - (h_lp2 - h_lp1)) * win;
       }
     }
 
