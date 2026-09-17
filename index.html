@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MMIP Noisy Speech Filter Lab | Low-Pass & High-Pass Signal Processing</title>
+  <meta name="description" content="Production-grade interactive Multimedia Information Processing (MMIP) application for speech noise filtering, spectral analysis, FFT spectrograms, and Butterworth low-pass / high-pass filter design.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-brand">
+        <div class="logo-icon">
+          <i data-lucide="waves"></i>
+        </div>
+        <div>
+          <h1>MMIP Speech Filter Lab</h1>
+          <p class="subtitle">Multimedia Information Processing & Noisy Speech Filtering</p>
+        </div>
+      </div>
+      <div class="header-presets">
+        <span class="preset-label">Quick Presets:</span>
+        <button class="preset-btn" id="preset-hiss">
+          <i data-lucide="sparkles"></i> High-Pass Hiss Removal (LPF)
+        </button>
+        <button class="preset-btn" id="preset-hum">
+          <i data-lucide="zap"></i> 50Hz Mains Hum Removal (HPF)
+        </button>
+        <button class="preset-btn" id="preset-tele">
+          <i data-lucide="phone-call"></i> Telephone Speech (BPF 300-3400Hz)
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Grid Workspace -->
+    <main class="main-grid">
+      <!-- Column 1: Input & Noise Controls -->
+      <section class="card input-card">
+        <div class="card-header">
+          <h2><i data-lucide="mic"></i> 1. Speech Source</h2>
+          <div class="tab-group" id="source-tabs">
+            <button class="tab-btn active" data-tab="synth">Synth</button>
+            <button class="tab-btn" data-tab="mic">Mic</button>
+            <button class="tab-btn" data-tab="file">Upload</button>
+            <button class="tab-btn" data-tab="preset">Sample</button>
+          </div>
+        </div>
+
+        <div class="tab-content active" id="tab-synth">
+          <div class="form-group">
+            <label for="synth-text">Synthetic Speech Text:</label>
+            <textarea id="synth-text" rows="2" placeholder="Enter text to synthesize speech...">Multimedia Information Processing requires clean signal filtering for accurate speech recognition.</textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group half">
+              <label for="synth-voice">Voice Preset:</label>
+              <select id="synth-voice">
+                <option value="male-formant">Male Formant Speech (Synthesis)</option>
+                <option value="female-formant">Female Formant Speech (Synthesis)</option>
+                <option value="web-speech">Browser WebSpeech Engine</option>
+              </select>
+            </div>
+            <div class="form-group half">
+              <label for="synth-pitch">Pitch / Rate:</label>
+              <input type="range" id="synth-pitch" min="0.5" max="1.5" step="0.1" value="1.0">
+            </div>
+          </div>
+          <button class="btn btn-primary btn-block" id="btn-generate-synth">
+            <i data-lucide="play-circle"></i> Generate Speech Sample
+          </button>
+        </div>
+
+        <div class="tab-content" id="tab-mic">
+          <div class="mic-recorder-box" id="mic-box">
+            <div class="mic-header-status">
+              <span class="rec-badge" id="rec-badge" style="display: none;"><span class="rec-dot"></span> REC</span>
+              <div class="mic-status" id="mic-status-text">Ready to record speech from microphone</div>
+            </div>
+            <div class="record-timer" id="record-timer">00:00.0</div>
+            <canvas id="canvas-mic-live" width="300" height="40" style="display: none; width: 100%; height: 40px; margin-bottom: 0.75rem; background: rgba(0,0,0,0.4); border-radius: 6px;"></canvas>
+            <div class="mic-controls">
+              <button class="btn btn-danger" id="btn-record-toggle">
+                <i data-lucide="mic"></i> Start Recording
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="tab-content" id="tab-file">
+          <div class="file-drop-zone" id="drop-zone">
+            <i data-lucide="upload-cloud"></i>
+            <p>Drag & Drop speech audio file (.wav, .mp3)</p>
+            <span>or click to browse</span>
+            <input type="file" id="file-input" accept="audio/*" hidden>
+          </div>
+          <div class="file-info" id="file-info" style="display: none;">
+            <i data-lucide="file-audio"></i> <span id="file-name">audio.wav</span>
+          </div>
+        </div>
+
+        <div class="tab-content" id="tab-preset">
+          <div class="sample-list">
+            <button class="sample-item active" data-sample="counting">
+              <i data-lucide="music"></i> Speech: "One, Two, Three, Four, Five"
+            </button>
+            <button class="sample-item" data-sample="sentence">
+              <i data-lucide="music"></i> Speech: "Low pass and high pass filtering"
+            </button>
+            <button class="sample-item" data-sample="vowel-sweep">
+              <i data-lucide="music"></i> Vowel Formant Sweep (A-E-I-O-U)
+            </button>
+          </div>
+        </div>
+
+        <hr class="divider">
+
+        <div class="card-header mt-2">
+          <h2><i data-lucide="volume-2"></i> 2. Noise Generator</h2>
+          <span class="badge badge-warning" id="noise-level-badge">SNR: +12.5 dB</span>
+        </div>
+
+        <div class="noise-controls">
+          <div class="form-group">
+            <div class="slider-header">
+              <label for="noise-hiss"><i data-lucide="cloud-rain"></i> High-Freq Hiss Noise (> 4kHz)</label>
+              <span class="value-display" id="val-noise-hiss">30%</span>
+            </div>
+            <input type="range" id="noise-hiss" min="0" max="100" value="30">
+            <span class="help-text">Simulates cassette hiss, high-frequency radio static, thermal noise.</span>
+          </div>
+
+          <div class="form-group">
+            <div class="slider-header">
+              <label for="noise-hum"><i data-lucide="zap"></i> Low-Freq Mains Hum (50/60Hz)</label>
+              <span class="value-display" id="val-noise-hum">20%</span>
+            </div>
+            <input type="range" id="noise-hum" min="0" max="100" value="20">
+            <span class="help-text">Simulates electrical grid hum, microphone ground buzz, wind rumble.</span>
+          </div>
+
+          <div class="form-group">
+            <div class="slider-header">
+              <label for="noise-white"><i data-lucide="activity"></i> Additive White Gaussian Noise</label>
+              <span class="value-display" id="val-noise-white">10%</span>
+            </div>
+            <input type="range" id="noise-white" min="0" max="100" value="10">
+            <span class="help-text">Wideband uniform thermal background noise across all frequencies.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Column 2: Filter Design Engine -->
+      <section class="card filter-card">
+        <div class="card-header">
+          <h2><i data-lucide="sliders"></i> 3. MMIP Filter Design</h2>
+          <span class="badge badge-info" id="filter-mode-badge">Low-Pass Filter</span>
+        </div>
+
+        <!-- Filter Mode Selector Buttons -->
+        <div class="filter-type-grid">
+          <button class="filter-mode-btn active" data-mode="lowpass">
+            <div class="mode-icon"><i data-lucide="arrow-down-right"></i></div>
+            <div class="mode-info">
+              <strong>Low-Pass (LPF)</strong>
+              <span>Passes &lt; Fc (Removes Hiss)</span>
+            </div>
+          </button>
+          <button class="filter-mode-btn" data-mode="highpass">
+            <div class="mode-icon"><i data-lucide="arrow-up-right"></i></div>
+            <div class="mode-info">
+              <strong>High-Pass (HPF)</strong>
+              <span>Passes &gt; Fc (Removes Hum)</span>
+            </div>
+          </button>
+          <button class="filter-mode-btn" data-mode="bandpass">
+            <div class="mode-icon"><i data-lucide="minimize-2"></i></div>
+            <div class="mode-info">
+              <strong>Band-Pass (BPF)</strong>
+              <span>Passes Fl to Fh (Voice Only)</span>
+            </div>
+          </button>
+          <button class="filter-mode-btn" data-mode="notch">
+            <div class="mode-icon"><i data-lucide="scissors"></i></div>
+            <div class="mode-info">
+              <strong>Notch / Stop</strong>
+              <span>Rejects Specific Frequency</span>
+            </div>
+          </button>
+        </div>
+
+        <div class="filter-params">
+          <div class="form-row">
+            <div class="form-group half">
+              <label for="filter-topology">Filter Architecture:</label>
+              <select id="filter-topology">
+                <option value="butterworth">Butterworth IIR (Cascaded Biquads)</option>
+                <option value="ideal">Ideal Frequency-Domain (FFT Cutoff)</option>
+                <option value="gaussian">Gaussian Smooth Frequency Window</option>
+              </select>
+            </div>
+            <div class="form-group half">
+              <label for="filter-order">Filter Order (N):</label>
+              <select id="filter-order">
+                <option value="1">1st Order (-6 dB/oct)</option>
+                <option value="2" selected>2nd Order (-12 dB/oct)</option>
+                <option value="4">4th Order (-24 dB/oct)</option>
+                <option value="6">6th Order (-36 dB/oct)</option>
+                <option value="8">8th Order (-48 dB/oct)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Cutoff Frequency Sliders -->
+          <div class="form-group" id="group-cutoff1">
+            <div class="slider-header">
+              <label for="cutoff-freq"><i data-lucide="crosshair"></i> Cutoff Frequency (Fc):</label>
+              <span class="value-display highlight" id="val-cutoff-freq">3400 Hz</span>
+            </div>
+            <input type="range" id="cutoff-freq" min="50" max="15000" step="10" value="3400">
+            <div class="freq-ticks">
+              <span>50 Hz</span>
+              <span>300 Hz</span>
+              <span>1 kHz</span>
+              <span>3.4 kHz</span>
+              <span>8 kHz</span>
+              <span>15 kHz</span>
+            </div>
+          </div>
+
+          <div class="form-group" id="group-cutoff2" style="display: none;">
+            <div class="slider-header">
+              <label for="cutoff-high"><i data-lucide="crosshair"></i> High Cutoff Frequency (Fh):</label>
+              <span class="value-display highlight" id="val-cutoff-high">3400 Hz</span>
+            </div>
+            <input type="range" id="cutoff-high" min="300" max="18000" step="10" value="3400">
+          </div>
+
+          <div class="form-group">
+            <div class="slider-header">
+              <label for="filter-q">Resonance / Quality Factor (Q):</label>
+              <span class="value-display" id="val-filter-q">0.707 (Butterworth Flat)</span>
+            </div>
+            <input type="range" id="filter-q" min="0.1" max="5.0" step="0.05" value="0.707">
+          </div>
+        </div>
+
+        <!-- Filter Frequency Response Plot -->
+        <div class="response-container">
+          <div class="response-header">
+            <span>Filter Bode Response Curve |H(f)| (dB)</span>
+            <span id="response-status">Passband: 0 - 3400 Hz</span>
+          </div>
+          <canvas id="canvas-bode" width="500" height="150"></canvas>
+        </div>
+      </section>
+
+      <!-- Column 3: Visual Analytics (Waveform, FFT Spectrum, Spectrogram) -->
+      <section class="card analytics-card">
+        <div class="card-header">
+          <h2><i data-lucide="bar-chart-3"></i> 4. Spectral & Time Visual Analytics</h2>
+          <div class="tab-group" id="viz-tabs">
+            <button class="tab-btn active" data-viz="dual">Time & DFT Dual View</button>
+            <button class="tab-btn" data-viz="spectrum">DFT Spectrum</button>
+            <button class="tab-btn" data-viz="waveform">Time Waveform</button>
+            <button class="tab-btn" data-viz="spectrogram">Spectrogram</button>
+          </div>
+        </div>
+
+        <!-- Visualization Canvas Container -->
+        <div class="viz-viewport">
+          <div class="viz-legend">
+            <span class="legend-item original"><span class="dot"></span> Clean Speech</span>
+            <span class="legend-item noisy"><span class="dot"></span> Recorded / Noisy Signal</span>
+            <span class="legend-item filtered"><span class="dot"></span> Filtered Output Signal</span>
+          </div>
+
+          <!-- Dual View: Time Domain Waveform + DFT Frequency Spectrum -->
+          <div id="dual-container" class="dual-viz-container">
+            <div class="viz-box">
+              <div class="box-title"><i data-lucide="activity"></i> Time-Domain Waveform x(t) (Amplitude vs Time)</div>
+              <canvas id="canvas-time-domain" width="900" height="145"></canvas>
+            </div>
+            <div class="viz-box mt-2">
+              <div class="box-title"><i data-lucide="bar-chart-2"></i> Discrete Fourier Transform (DFT / FFT) Magnitude Spectrum |X(f)| (dB vs Hz)</div>
+              <canvas id="canvas-dft-spectrum" width="900" height="145"></canvas>
+            </div>
+          </div>
+
+          <!-- Single View Canvas -->
+          <canvas id="viz-canvas" width="900" height="320" style="display: none;"></canvas>
+
+          <!-- Spectrogram View -->
+          <div id="spectrogram-overlay" class="spectrogram-container" style="display: none;">
+            <div class="spectrogram-box">
+              <div class="spec-title">Noisy Speech Spectrogram (Time vs Freq)</div>
+              <canvas id="canvas-spec-noisy" width="900" height="140"></canvas>
+            </div>
+            <div class="spectrogram-box mt-2">
+              <div class="spec-title">Filtered Speech Spectrogram</div>
+              <canvas id="canvas-spec-filtered" width="900" height="140"></canvas>
+            </div>
+          </div>
+        </div>
+
+        <!-- Performance Metrics Bar -->
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-label">Input SNR</div>
+            <div class="metric-value warning" id="metric-snr-in">+12.4 dB</div>
+            <div class="metric-sub">Speech to Noise Ratio</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Filtered SNR</div>
+            <div class="metric-value success" id="metric-snr-out">+28.1 dB</div>
+            <div class="metric-sub">Post-Filter Output</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">SNR Gain</div>
+            <div class="metric-value highlight" id="metric-snr-gain">+15.7 dB</div>
+            <div class="metric-sub">Noise Reduction Boost</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Noise Attenuation</div>
+            <div class="metric-value info" id="metric-attenuation">83.4%</div>
+            <div class="metric-sub">Power Suppressed</div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Bottom Audio Player Control Bar -->
+    <footer class="player-bar">
+      <div class="player-controls">
+        <button class="play-btn" id="btn-master-play">
+          <i data-lucide="play"></i>
+        </button>
+
+        <div class="audio-mode-selector">
+          <label class="radio-label">
+            <input type="radio" name="audio-source" value="filtered" checked>
+            <span><i data-lucide="shield-check"></i> Filtered Speech</span>
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="audio-source" value="noisy">
+            <span><i data-lucide="volume-x"></i> Noisy Speech</span>
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="audio-source" value="original">
+            <span><i data-lucide="check-circle"></i> Clean Speech</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="player-scrubber">
+        <span id="time-current">00:00</span>
+        <input type="range" id="scrubber-bar" min="0" max="100" value="0">
+        <span id="time-total">00:03</span>
+      </div>
+
+      <div class="player-actions">
+        <button class="btn btn-secondary" id="btn-export-wav">
+          <i data-lucide="download"></i> Export Filtered WAV
+        </button>
+      </div>
+    </footer>
+
+    <!-- MMIP Educational Theory Section -->
+    <section class="card mmip-guide-card">
+      <div class="card-header">
+        <h2><i data-lucide="book-open"></i> MMIP Fundamentals: Noisy Speech Processing Pipeline</h2>
+      </div>
+
+      <div class="theory-grid">
+        <div class="theory-box">
+          <h3>1. Speech & Noise Spectral Characteristics</h3>
+          <p>Human speech energy is primarily concentrated in the formant range (<strong>300 Hz to 3400 Hz</strong>), with vowels carrying low-frequency harmonic fundamentals (F₀ ≈ 85–255 Hz) and unvoiced consonants (s, f, sh) extending up to 8 kHz.</p>
+          <ul>
+            <li><strong>Low-Pass Filter (LPF)</strong>: Cuts high-frequency channel hiss (f &gt; Fc), preserving fundamental speech formants.</li>
+            <li><strong>High-Pass Filter (HPF)</strong>: Cuts low-frequency AC mains hum (50/60 Hz) and DC wind rumble (f &lt; Fc).</li>
+          </ul>
+        </div>
+
+        <div class="theory-box">
+          <h3>2. Butterworth IIR Filter Transfer Function</h3>
+          <p>The Butterworth filter provides a maximally flat magnitude response in the passband without ripple:</p>
+          <div class="math-block">
+            |H(f)|² = 1 / [1 + (f / Fc)²ᴺ]
+          </div>
+          <p>Implemented in real-time via second-order Direct Form II Transposed <strong>Biquad IIR Digital Filters</strong>:</p>
+          <div class="math-block">
+            y[n] = b₀·x[n] + b₁·x[n-1] + b₂·x[n-2] - a₁·y[n-1] - a₂·y[n-2]
+          </div>
+        </div>
+
+        <div class="theory-box">
+          <h3>3. Fourier Analysis & Spectrogram (STFT)</h3>
+          <p>The Short-Time Fourier Transform (STFT) decomposes non-stationary speech signals into localized time-frequency representations:</p>
+          <div class="math-block">
+            X(m, ω) = ∑ x[n] · w[n - m] · e⁻ʲʷⁿ
+          </div>
+          <p>This allows visual verification of noise suppression across time frames in the spectrogram heatmap.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    lucide.createIcons();
+  </script>
+</body>
+</html>
