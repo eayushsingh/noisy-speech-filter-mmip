@@ -910,11 +910,11 @@ class SpeechFilterEngine {
   }
 
   renderSpectrograms() {
-    this.renderSingleSpectrogram('canvas-spec-noisy', this.noisyBuffer);
-    this.renderSingleSpectrogram('canvas-spec-filtered', this.filteredBuffer);
+    this.renderSingleSpectrogram('canvas-spec-noisy', this.noisyBuffer, 'Noisy Speech STFT Spectrogram (Time vs Freq)');
+    this.renderSingleSpectrogram('canvas-spec-filtered', this.filteredBuffer, 'Filtered Speech STFT Spectrogram (Time vs Freq)');
   }
 
-  renderSingleSpectrogram(canvasId, buffer) {
+  renderSingleSpectrogram(canvasId, buffer, titleText) {
     const canvas = document.getElementById(canvasId);
     if (!canvas || !buffer) return;
     const setup = this.setupCanvas(canvas);
@@ -923,13 +923,29 @@ class SpeechFilterEngine {
 
     ctx.clearRect(0, 0, width, height);
 
+    // Layout Padding for Axes & Labels
+    const paddingLeft = 45;
+    const paddingBottom = 22;
+    const paddingTop = 20;
+    const paddingRight = 15;
+
+    const graphW = width - paddingLeft - paddingRight;
+    const graphH = height - paddingTop - paddingBottom;
+
+    // Create Offscreen Heatmap Canvas for High Performance STFT Render
+    const specW = 512;
+    const specH = 128;
+    const offscreen = document.createElement('canvas');
+    offscreen.width = specW;
+    offscreen.height = specH;
+    const offCtx = offscreen.getContext('2d');
+    const imgData = offCtx.createImageData(specW, specH);
+
     const fftSize = 256;
-    const hopSize = Math.max(1, Math.floor(buffer.length / width));
+    const hopSize = Math.max(1, Math.floor(buffer.length / specW));
     const numBins = fftSize / 2;
 
-    const imgData = ctx.createImageData(width, height);
-
-    for (let x = 0; x < width; x++) {
+    for (let x = 0; x < specW; x++) {
       const pos = x * hopSize;
       const real = new Float32Array(fftSize);
       const imag = new Float32Array(fftSize);
@@ -943,16 +959,29 @@ class SpeechFilterEngine {
 
       this.fft(real, imag);
 
-      for (let y = 0; y < height; y++) {
-        const bin = Math.floor((1 - y / height) * numBins);
+      for (let y = 0; y < specH; y++) {
+        const bin = Math.floor((1 - y / specH) * numBins);
         const mag = Math.sqrt(real[bin] * real[bin] + imag[bin] * imag[bin]);
-        const norm = Math.min(1.0, Math.max(0, (20 * Math.log10(mag + 1e-4) + 60) / 60));
+        const norm = Math.min(1.0, Math.max(0, (20 * Math.log10(mag + 1e-4) + 65) / 65));
 
-        const r = Math.floor(Math.pow(norm, 0.8) * 255);
-        const g = Math.floor(Math.sin(norm * Math.PI) * 200);
-        const b = Math.floor((1 - norm) * 180 + norm * 255);
+        // High-Contrast Turbo/Inferno Colormap Palette
+        let r = 0, g = 0, b = 0;
+        if (norm < 0.2) {
+          b = Math.floor(norm * 5 * 128);
+        } else if (norm < 0.45) {
+          b = Math.floor(128 + (norm - 0.2) * 4 * 127);
+          g = Math.floor((norm - 0.2) * 4 * 150);
+        } else if (norm < 0.75) {
+          r = Math.floor((norm - 0.45) * 3.33 * 255);
+          g = 150 + Math.floor((norm - 0.45) * 3.33 * 80);
+          b = 255 - Math.floor((norm - 0.45) * 3.33 * 255);
+        } else {
+          r = 255;
+          g = 230 + Math.floor((norm - 0.75) * 4 * 25);
+          b = Math.floor((norm - 0.75) * 4 * 255);
+        }
 
-        const pixelIdx = (y * width + x) * 4;
+        const pixelIdx = (y * specW + x) * 4;
         imgData.data[pixelIdx] = r;
         imgData.data[pixelIdx + 1] = g;
         imgData.data[pixelIdx + 2] = b;
@@ -960,7 +989,68 @@ class SpeechFilterEngine {
       }
     }
 
-    ctx.putImageData(imgData, 0, 0);
+    offCtx.putImageData(imgData, 0, 0);
+
+    // Draw Heatmap Image onto main canvas scaled to graph area
+    ctx.drawImage(offscreen, paddingLeft, paddingTop, graphW, graphH);
+
+    // Draw Graph Border
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(paddingLeft, paddingTop, graphW, graphH);
+
+    // Y-Axis Frequency Labels & Gridlines
+    const freqs = [
+      { label: '22kHz', norm: 1.0 },
+      { label: '15kHz', norm: 15000 / 22050 },
+      { label: '8kHz', norm: 8000 / 22050 },
+      { label: '3.4kHz', norm: 3400 / 22050 },
+      { label: '1kHz', norm: 1000 / 22050 },
+      { label: '0Hz', norm: 0.0 }
+    ];
+
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '9px monospace';
+
+    freqs.forEach(f => {
+      const y = paddingTop + (1 - f.norm) * graphH;
+      ctx.fillText(f.label, 5, y + 3);
+
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+      ctx.beginPath();
+      ctx.moveTo(paddingLeft, y);
+      ctx.lineTo(paddingLeft + graphW, y);
+      ctx.stroke();
+    });
+
+    // Draw Cutoff Frequency (Fc) Line across Spectrogram
+    const fcNorm = Math.min(1.0, this.cutoffLow / (this.sampleRate / 2));
+    const yFc = paddingTop + (1 - fcNorm) * graphH;
+
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(paddingLeft, yFc);
+    ctx.lineTo(paddingLeft + graphW, yFc);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = '#ef4444';
+    ctx.fillText(`Fc: ${this.cutoffLow}Hz`, paddingLeft + graphW - 65, Math.max(paddingTop + 12, yFc - 4));
+
+    // X-Axis Time Labels
+    const totalSec = buffer.length / this.sampleRate;
+    const timeSteps = 5;
+    for (let i = 0; i <= timeSteps; i++) {
+      const pct = i / timeSteps;
+      const x = paddingLeft + pct * graphW;
+      const secVal = (pct * totalSec).toFixed(1) + 's';
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '9px monospace';
+      ctx.fillText(secVal, x - 10, height - 6);
+    }
   }
 
   // ==========================================
