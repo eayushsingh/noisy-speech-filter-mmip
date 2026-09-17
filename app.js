@@ -945,6 +945,13 @@ class SpeechFilterEngine {
     const hopSize = Math.max(1, Math.floor(buffer.length / specW));
     const numBins = fftSize / 2;
 
+    // Calculate peak sample magnitude for adaptive dynamic range colormapping
+    let peakVal = 1e-5;
+    for (let i = 0; i < buffer.length; i += 32) {
+      const absV = Math.abs(buffer[i]);
+      if (absV > peakVal) peakVal = absV;
+    }
+
     for (let x = 0; x < specW; x++) {
       const pos = x * hopSize;
       const real = new Float32Array(fftSize);
@@ -953,7 +960,7 @@ class SpeechFilterEngine {
       for (let i = 0; i < fftSize; i++) {
         if (pos + i < buffer.length) {
           const win = 0.5 * (1 - Math.cos(2 * Math.PI * i / fftSize));
-          real[i] = buffer[pos + i] * win;
+          real[i] = (buffer[pos + i] / Math.max(1e-4, peakVal)) * win;
         }
       }
 
@@ -962,7 +969,8 @@ class SpeechFilterEngine {
       for (let y = 0; y < specH; y++) {
         const bin = Math.floor((1 - y / specH) * numBins);
         const mag = Math.sqrt(real[bin] * real[bin] + imag[bin] * imag[bin]);
-        const norm = Math.min(1.0, Math.max(0, (20 * Math.log10(mag + 1e-4) + 65) / 65));
+        const db = 20 * Math.log10(mag + 1e-4);
+        const norm = Math.min(1.0, Math.max(0, (db + 45) / 45));
 
         // High-Contrast Turbo/Inferno Colormap Palette
         let r = 0, g = 0, b = 0;
