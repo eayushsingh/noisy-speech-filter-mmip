@@ -1099,6 +1099,16 @@ class SpeechFilterEngine {
       });
     });
 
+    document.getElementById('preset-total-cancellation').addEventListener('click', () => {
+      this.filterMode = 'bandpass';
+      this.cutoffLow = 300;
+      this.cutoffHigh = 3400;
+      this.filterTopology = 'butterworth';
+      this.filterOrder = 4;
+      this.updateFilterUI();
+      this.processAudioPipeline();
+    });
+
     document.getElementById('preset-hiss').addEventListener('click', () => {
       this.filterMode = 'lowpass';
       this.cutoffLow = 3400;
